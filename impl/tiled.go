@@ -1,3 +1,5 @@
+// Package impl contains internal TIFF image decoding implementations.
+// This file implements support for tiled TIFF images with lazy loading and optional decompression.
 package impl
 
 import (
@@ -14,12 +16,28 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
+// tiledTiff provides an image.Image implementation for tiled TIFF images.
+//
+// It supports lazy tile loading and decompression (Deflate), using an LRU cache
+// to avoid redundant I/O. Pixel values are accessed using the At(x, y) method,
+// which transparently reads and decompresses the necessary tile on demand.
 type tiledTiff struct {
 	header TiffHeader
 	reader io.ReaderAt
-	cache  *lru.Cache // tileIndex -> []byte
+	cache  *lru.Cache // maps tileIndex -> []byte
 }
 
+// LoadTiledTiff attempts to parse a tiled TIFF image from an io.ReaderAt,
+// returning an image.Image with lazy tile access.
+//
+// Supported format constraints:
+//   - Compression: None, Deflate (zlib)
+//   - PhotometricInterpretation: RGB or BlackIsZero
+//   - BitsPerSample: 8-bit
+//
+// The returned image.Image requires the caller to keep the reader open
+// for the lifetime of the image. This decoder avoids loading the full
+// image into memory.
 func LoadTiledTiff(reader io.ReaderAt) (image.Image, error) {
 	header, err := parseTiffHeader(reader)
 	if err != nil {
@@ -49,24 +67,28 @@ func LoadTiledTiff(reader io.ReaderAt) (image.Image, error) {
 		return nil, fmt.Errorf("invalid tile offset/length")
 	}
 
-	cache, _ := lru.New(200) // Keep last 20 tiles decompressed
+	cache, _ := lru.New(200) // keep last 200 tiles decompressed
 
 	return &tiledTiff{
 		header: header,
 		reader: reader,
 		cache:  cache,
 	}, nil
-
 }
 
+// ColorModel returns the color model of the image.
+// Always returns color.RGBAModel.
 func (t *tiledTiff) ColorModel() color.Model {
 	return color.RGBAModel
 }
 
+// Bounds returns the rectangular bounds of the image.
 func (t *tiledTiff) Bounds() image.Rectangle {
 	return image.Rect(0, 0, t.header.Width, t.header.Height)
 }
 
+// At returns the color of the pixel at (x, y).
+// The underlying tile is loaded and decompressed on demand if needed.
 func (t *tiledTiff) At(x, y int) color.Color {
 	h := t.header
 
@@ -90,7 +112,6 @@ func (t *tiledTiff) At(x, y int) color.Color {
 
 	switch h.Photometric {
 	case photometric.RGB:
-
 		return color.RGBA{
 			R: tile[pixOffset],
 			G: tile[pixOffset+1],
@@ -105,11 +126,14 @@ func (t *tiledTiff) At(x, y int) color.Color {
 			B: tile[pixOffset],
 			A: 255,
 		}
+
 	default:
 		panic(fmt.Sprintf("unsupported PhotometricInterpretation: %d", h.Photometric))
 	}
 }
 
+// loadTile loads and optionally decompresses a single tile at the given index.
+// It panics on I/O or decompression errors.
 func (t *tiledTiff) loadTile(index int) []byte {
 	h := t.header
 	offset := h.TileOffsets[index]

@@ -1,3 +1,5 @@
+// Package impl contains internal TIFF decoding helpers.
+// This file defines the low-level parsing logic for TIFF headers.
 package impl
 
 import (
@@ -11,29 +13,41 @@ import (
 	"github.com/echoflaresat/tiff/tifftag"
 )
 
+// TiffHeader represents a parsed TIFF IFD (Image File Directory) header.
+// It captures key fields used in both striped and tiled image access.
 type TiffHeader struct {
-	ByteOrder       binary.ByteOrder
-	Width, Height   int
-	SamplesPerPixel int
-	BitsPerSample   []int
+	// ByteOrder indicates whether the TIFF uses little-endian or big-endian byte ordering.
+	ByteOrder binary.ByteOrder
+
+	// Image dimensions.
+	Width, Height int
+
+	// Per-pixel format.
+	SamplesPerPixel int   // usually 1 (grayscale) or 3 (RGB)
+	BitsPerSample   []int // bits per component, typically [8, 8, 8] for RGB
 	Photometric     photometric.Interpretation
 	Compression     compression.Type
 	PlanarConfig    planarconfig.Type
 
-	// Strip layout
+	// Strip layout fields.
 	RowsPerStrip    int
 	StripOffsets    []int
 	StripByteCounts []int
 
-	// Tile layout
+	// Tile layout fields.
 	TileWidth      int
 	TileHeight     int
 	TileOffsets    []int
 	TileByteCounts []int
 }
 
+// ErrInvalidTiffHeader is returned when the TIFF header is missing, malformed,
+// or not conforming to the expected structure (e.g., wrong magic number).
 var ErrInvalidTiffHeader = errors.New("invalid TIFF header")
 
+// parseTiffHeader reads the TIFF header and directory entries (IFD) from the given reader.
+// It supports both little- and big-endian TIFFs.
+// The returned TiffHeader includes parsed tag values for layout, compression, and format.
 func parseTiffHeader(reader io.ReaderAt) (TiffHeader, error) {
 	read := func(offset int64, size int) ([]byte, error) {
 		buf := make([]byte, size)
@@ -41,7 +55,7 @@ func parseTiffHeader(reader io.ReaderAt) (TiffHeader, error) {
 		return buf, err
 	}
 
-	// Read 8-byte header
+	// Read the 8-byte TIFF header
 	header, err := read(0, 8)
 	if err != nil {
 		return TiffHeader{}, err
@@ -61,7 +75,7 @@ func parseTiffHeader(reader io.ReaderAt) (TiffHeader, error) {
 	}
 	ifdOffset := int64(bo.Uint32(header[4:8]))
 
-	// Read number of entries
+	// Read number of IFD entries
 	entryCountRaw, err := read(ifdOffset, 2)
 	if err != nil {
 		return TiffHeader{}, err

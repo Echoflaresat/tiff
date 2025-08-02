@@ -1,4 +1,4 @@
-# `tiff` – Streamable TIFF Decoder for Go
+# `tiff` – Random Access TIFF Decoder for Go
 
 This package provides a memory-efficient, standards-compatible TIFF decoder for Go, with support for **on-demand access** to striped and tiled images. It is a drop-in replacement for the standard `image/tiff` package, but optimized for large or remote TIFFs.
 
@@ -13,13 +13,13 @@ This package provides a memory-efficient, standards-compatible TIFF decoder for 
 
 ## 🔧 Supported TIFF Tags
 
-| Tag                        | Support |
-|---------------------------|---------|
-| Compression: `None`, `Deflate` | ✅      |
+| Tag                             | Support |
+|----------------------------------|---------|
+| Compression: `None`, `Deflate`  | ✅      |
 | Photometric: `RGB`, `BlackIsZero` | ✅      |
-| PlanarConfig: `Contig` only | ✅      |
-| StripOffsets / StripByteCounts | ✅      |
-| TileOffsets / TileByteCounts   | ✅      |
+| PlanarConfig: `Contig` only     | ✅      |
+| StripOffsets / StripByteCounts  | ✅      |
+| TileOffsets / TileByteCounts    | ✅      |
 
 ## 🚀 Usage
 
@@ -60,6 +60,7 @@ cfg, err := image.DecodeConfig(f)
 - If the input is an `io.ReadSeeker`, it wraps it to support `ReadAt`.
 - For striped/tiled TIFFs with supported layout, it avoids reading the full image.
 - Uses [Hashicorp LRU](https://github.com/hashicorp/golang-lru) for caching decompressed tiles.
+- **IMPORTANT**: When a TIFF is successfully parsed using this package’s `striped` or `tiled` backend, the decoded image lazily fetches pixel data. Therefore, the original input must remain open and readable for the lifetime of the returned `image.Image`.
 
 ## 📦 Compatibility
 
@@ -69,18 +70,6 @@ The package conforms to Go’s standard `image` interface:
 - `Bounds()`
 - `At(x, y)`
 
-It can be used anywhere `image.Image` is expected, including PNG or JPEG pipelines.
-
-## 🛠 Future Roadmap
-
-- [ ] Support for `PlanarConfig = Separate`
-- [ ] Support `Predictor = Horizontal`
-- [ ] Add support for more photometric interpretations (e.g., CMYK, YCbCr)
-
-## 🧪 Tests & Real World Samples
-
-This package is tested with both synthetic and real TIFFs, including high-res satellite and scientific imagery.
-
-## License
+## 📄 License
 
 MIT – see [LICENSE](./LICENSE)
