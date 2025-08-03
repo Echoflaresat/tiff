@@ -42,7 +42,6 @@ package tiff
 import (
 	"image"
 	"io"
-	"sync"
 
 	"github.com/echoflaresat/tiff/impl"
 	stdtiff "golang.org/x/image/tiff"
@@ -86,17 +85,14 @@ func Decode(r io.Reader) (image.Image, error) {
 	return stdtiff.Decode(r)
 }
 
-// readerAtFromSeeker adapts an io.ReadSeeker to io.ReaderAt using a mutex for thread safety.
+// readerAtFromSeeker adapts an io.ReadSeeker to io.ReaderAt.
 type readerAtFromSeeker struct {
 	rs io.ReadSeeker
-	mu sync.Mutex
 }
 
 // ReadAt implements the io.ReaderAt interface for readerAtFromSeeker.
 // It seeks to the specified offset and reads into p.
 func (r *readerAtFromSeeker) ReadAt(p []byte, off int64) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, err := r.rs.Seek(off, io.SeekStart); err != nil {
 		return 0, err
 	}
