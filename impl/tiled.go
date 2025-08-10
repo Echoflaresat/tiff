@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"io"
 	"math"
+	"sync"
 
 	"github.com/echoflaresat/tiff/compression"
 	"github.com/echoflaresat/tiff/photometric"
@@ -25,6 +26,7 @@ type tiledTiff struct {
 	header TiffHeader
 	reader io.ReaderAt
 	cache  *lru.Cache // maps tileIndex -> []byte
+	mutex  *sync.Mutex
 }
 
 // LoadTiledTiff attempts to parse a tiled TIFF image from an io.ReaderAt,
@@ -67,12 +69,16 @@ func LoadTiledTiff(reader io.ReaderAt) (image.Image, error) {
 		return nil, fmt.Errorf("invalid tile offset/length")
 	}
 
-	cache, _ := lru.New(200) // keep last 200 tiles decompressed
+	cache, err := lru.New(header.Width / header.TileWidth)
+	if err != nil {
+		return nil, fmt.Errorf("could not create cache; %w", err)
+	}
 
 	return &tiledTiff{
 		header: header,
 		reader: reader,
 		cache:  cache,
+		mutex:  &sync.Mutex{},
 	}, nil
 }
 
@@ -135,12 +141,15 @@ func (t *tiledTiff) At(x, y int) color.Color {
 // loadTile loads and optionally decompresses a single tile at the given index.
 // It panics on I/O or decompression errors.
 func (t *tiledTiff) loadTile(index int) []byte {
+
 	h := t.header
 	offset := h.TileOffsets[index]
 	byteCount := h.TileByteCounts[index]
 
 	buf := make([]byte, byteCount)
+	t.mutex.Lock()
 	_, err := t.reader.ReadAt(buf, int64(offset))
+	t.mutex.Unlock()
 	if err != nil {
 		panic(fmt.Sprintf("failed to read tile %d: %v", index, err))
 	}

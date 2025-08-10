@@ -1,14 +1,6 @@
 # `tiff` – Random Access TIFF Decoder for Go
 
-This package provides a memory-efficient, standards-compatible TIFF decoder for Go, with support for **on-demand access** to striped and tiled images. 
-It is a drop-in replacement for the standard `https://pkg.go.dev/golang.org/x/image/tiff` package, optimized for large TIFFs.
-
-- Compatible with the standard `image.Image` interface
-- Integrates with Go’s `image.RegisterFormat` (supports `image.Decode`)
-- Gracefully falls back to `https://pkg.go.dev/golang.org/x/image/tiff` for unsupported formats.
-
-**⚠️ Important**: When a TIFF is successfully parsed using this package’s `striped` or `tiled` backend, the decoded image lazily fetches pixel data. 
-  Therefore, the original input must remain open and readable for the lifetime of the returned `image.Image`.
+This package provides a memory-efficient, standards-compatible TIFF decoder for Go, with support for **on-demand access** to striped and tiled images with graceful fallback to `https://pkg.go.dev/golang.org/x/image/tiff` for unsupported formats.
 
 For random-access decoding to work, the TIFF must conform to the following constraints:
 
@@ -20,12 +12,11 @@ For random-access decoding to work, the TIFF must conform to the following const
 
 ## Usage
 
-You can use this package exactly like any Go image decoder:
 
 ```go
 import (
 	"image"
-	_ "github.com/echoflaresat/tiff"
+	"github.com/echoflaresat/tiff"
 )
 
 func main() {
@@ -35,7 +26,8 @@ func main() {
 	}
 	defer f.Close() // keep it open until you are done with the image
 
-	img, _, err := image.Decode(f)
+	
+	img, _, err := tiff.Decode(f)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -47,13 +47,6 @@ import (
 	stdtiff "golang.org/x/image/tiff"
 )
 
-const (
-	// littleEndianHeader is the TIFF header for little-endian byte order.
-	littleEndianHeader = "II\x2A\x00"
-	// bigEndianHeader is the TIFF header for big-endian byte order.
-	bigEndianHeader = "MM\x00\x2A"
-)
-
 // DecodeConfig returns the color model and dimensions of a TIFF image without decoding the entire image.
 // It uses the standard library's TIFF decoder for configuration extraction.
 func DecodeConfig(r io.Reader) (image.Config, error) {
@@ -97,10 +90,4 @@ func (r *readerAtFromSeeker) ReadAt(p []byte, off int64) (int, error) {
 		return 0, err
 	}
 	return r.rs.Read(p)
-}
-
-// init registers the TIFF format with the image package, supporting both little-endian and big-endian headers.
-func init() {
-	image.RegisterFormat("tiff", littleEndianHeader, Decode, DecodeConfig)
-	image.RegisterFormat("tiff", bigEndianHeader, Decode, DecodeConfig)
 }

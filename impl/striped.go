@@ -7,6 +7,9 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"sync"
+
+	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/echoflaresat/tiff/compression"
 	"github.com/echoflaresat/tiff/photometric"
@@ -19,6 +22,8 @@ import (
 type stripedTiff struct {
 	header TiffHeader
 	reader io.ReaderAt
+	cache  *lru.Cache // maps tileIndex -> []byte
+	mutex  *sync.Mutex
 }
 
 // LoadStripedTiff attempts to parse and load a TIFF image using a striped layout.
@@ -60,7 +65,17 @@ func LoadStripedTiff(reader io.ReaderAt) (image.Image, error) {
 		return nil, fmt.Errorf("invalid strip offset/length")
 	}
 
-	return &stripedTiff{header: header, reader: reader}, nil
+	cache, err := lru.New(256)
+	if err != nil {
+		return nil, fmt.Errorf("could not create cache; %w", err)
+	}
+
+	return &stripedTiff{
+		header: header,
+		reader: reader,
+		cache:  cache,
+		mutex:  &sync.Mutex{},
+	}, nil
 }
 
 // ColorModel returns the color model used by the TIFF image.
@@ -82,26 +97,46 @@ func (t *stripedTiff) At(x, y int) color.Color {
 	strip := y / h.RowsPerStrip
 	localY := y % h.RowsPerStrip
 	bytesPerPixel := h.SamplesPerPixel
-	idx := h.StripOffsets[strip] + (localY*h.Width+x)*bytesPerPixel
+	row := t.getRow(strip, localY, bytesPerPixel)
+
+	base := x * bytesPerPixel
 
 	switch h.Photometric {
 	case photometric.RGB:
-		var buf [3]byte
-		_, err := t.reader.ReadAt(buf[:], int64(idx))
-		if err != nil {
-			panic(fmt.Sprintf("could not read RGB pixel at (%d,%d): %v", x, y, err))
-		}
-		return color.RGBA{R: buf[0], G: buf[1], B: buf[2], A: 255}
-
+		return color.RGBA{R: row[base+0], G: row[base+1], B: row[base+2], A: 255}
 	case photometric.BlackIsZero:
-		var b [1]byte
-		_, err := t.reader.ReadAt(b[:], int64(idx))
-		if err != nil {
-			panic(fmt.Sprintf("could not read grayscale pixel at (%d,%d): %v", x, y, err))
-		}
-		return color.RGBA{R: b[0], G: b[0], B: b[0], A: 255}
-
+		v := row[base]
+		return color.RGBA{R: v, G: v, B: v, A: 255}
 	default:
 		panic(fmt.Sprintf("unsupported PhotometricInterpretation: %d", h.Photometric))
 	}
+}
+
+// getRow returns a full row of raw bytes for (strip, rowInStrip).
+// Fast path: no lock on reader; RLock+Get on cache.
+// On miss: Lock, double-check, then single-threaded ReadAt and cache.
+func (t *stripedTiff) getRow(strip, rowInStrip, bpp int) []byte {
+	key := (uint64(strip) << 32) | uint64(uint32(rowInStrip))
+
+	// Try cache under read lock.
+	if row, ok := t.cache.Get(key); ok {
+		return row.([]byte)
+	}
+
+	h := t.header
+	rowSize := h.Width * bpp
+	offset := int64(h.StripOffsets[strip] + (rowInStrip*h.Width)*bpp)
+
+	row := make([]byte, rowSize)
+	t.mutex.Lock()
+	n, err := t.reader.ReadAt(row, offset)
+	defer t.mutex.Unlock()
+
+	if err != nil || n != len(row) {
+		panic(fmt.Sprintf("could not read row strip=%d row=%d: read %d/%d bytes, err=%v",
+			strip, rowInStrip, n, len(row), err))
+	}
+
+	t.cache.Add(key, row)
+	return row
 }
